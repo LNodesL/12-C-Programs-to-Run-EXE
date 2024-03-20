@@ -1,39 +1,54 @@
 #include <windows.h>
 #include <stdio.h>
 
-int CreateAndExecuteVBSScript() {
-    WCHAR currentDir[MAX_PATH];
-    
-    GetCurrentDirectoryW(MAX_PATH, currentDir);
-
-    FILE *f = fopen("uniqueHelloworld.vbs", "w");
-    if (f == NULL) {
-        wprintf(L"Failed to create VBS script.\n");
-        return -1;
+void GetCurrentProgramDirectory(char* programDir, size_t length) {
+    DWORD size = GetModuleFileName(NULL, programDir, length);
+    if (size == 0 || size == length) {
+        // Handle error
+        programDir[0] = '\0'; // Ensure null-terminated string on failure
+        return;
     }
 
-    fprintf(f, "Set objWMIService = GetObject(\"winmgmts:\\\\.\\root\\cimv2\")\n");
-    fprintf(f, "Set colProcesses = objWMIService.ExecQuery _\n");
-    fprintf(f, "    (\"Select * from Win32_Process Where Name = 'helloworld.exe'\")\n");
-    fprintf(f, "If colProcesses.Count = 0 Then\n");
-    fprintf(f, "    Set WshShell = CreateObject(\"WScript.Shell\")\n");
-    fprintf(f, "    WshShell.Run \"%ls\\\\helloworld.exe\"\n", currentDir);
-    fprintf(f, "End If\n");
-
-    fclose(f);
-
-    system("cscript //Nologo uniqueHelloworld.vbs");
-
-    // Clean up
-    remove("uniqueHelloworld.vbs");
-
-    return 0;
+    // Find the last backslash (directory separator) and truncate the string there to remove the executable name
+    char* lastBackslash = strrchr(programDir, '\\');
+    if (lastBackslash != NULL) {
+        *(lastBackslash + 1) = '\0'; // Keep the trailing backslash
+    }
 }
 
 int main() {
-    if (CreateAndExecuteVBSScript() != 0) {
-        wprintf(L"Script execution failed.\n");
-        return -1;
+    HKEY hKey;
+    const char* regPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    const char* valueName = "MyAppLauncher";
+    char programDir[MAX_PATH];
+    char command[MAX_PATH];
+
+    GetCurrentProgramDirectory(programDir, sizeof(programDir));
+    snprintf(command, sizeof(command), "%shelloworld.exe", programDir); // Construct the full path
+
+    // Open or create the key where we set startup commands
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, regPath, 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+        // Set the value to launch helloworld.exe
+        if (RegSetValueEx(hKey, valueName, 0, REG_SZ, (BYTE*)command, strlen(command) + 1) == ERROR_SUCCESS) {
+            printf("Command added to registry.\n");
+        } else {
+            printf("Failed to add command to registry.\n");
+        }
+
+        RegCloseKey(hKey);
+    } else {
+        printf("Failed to open registry key.\n");
+    }
+
+    // Trigger the command. This is a simplistic way to execute the command added to the registry for demonstration purposes.
+    char triggerCmd[MAX_PATH];
+    snprintf(triggerCmd, sizeof(triggerCmd), "cmd /c start \"\" \"%s\"", command);
+    system(triggerCmd);
+
+    // Cleanup registry after execution for safety
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, regPath, 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+        RegDeleteValue(hKey, valueName);
+        RegCloseKey(hKey);
     }
 
     return 0;
