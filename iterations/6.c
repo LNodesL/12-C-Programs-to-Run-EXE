@@ -1,28 +1,38 @@
 #include <windows.h>
 #include <stdio.h>
 
-// Function to launch an executable and wait for its completion using ShellExecuteEx and WaitForSingleObject
+// Function to launch an executable in suspended mode and then resume it
 int LaunchAndWait(LPCWSTR executablePath) {
-    SHELLEXECUTEINFOW sei = {0};
+    STARTUPINFOW si = {0};
+    PROCESS_INFORMATION pi = {0};
 
-    sei.cbSize = sizeof(SHELLEXECUTEINFOW);
-    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
-    sei.lpVerb = L"open";
-    sei.lpFile = executablePath;
-    sei.nShow = SW_SHOW;
-    sei.hwnd = NULL;
+    si.cb = sizeof(STARTUPINFOW);
 
-    // Launch the executable
-    if (!ShellExecuteExW(&sei)) {
-        wprintf(L"ShellExecuteEx failed with error %lu\n", GetLastError());
+    // Create the process in suspended state
+    if (!CreateProcessW(executablePath,   // Application name
+                        NULL,             // Command line
+                        NULL,             // Process handle not inheritable
+                        NULL,             // Thread handle not inheritable
+                        FALSE,            // Set handle inheritance to FALSE
+                        CREATE_SUSPENDED, // Create suspended
+                        NULL,             // Use parent's environment block
+                        NULL,             // Use parent's starting directory 
+                        &si,              // Pointer to STARTUPINFO structure
+                        &pi))             // Pointer to PROCESS_INFORMATION structure
+    {
+        wprintf(L"CreateProcess failed with error %lu\n", GetLastError());
         return -1;
     }
 
-    // Wait for the launched application to finish
-    WaitForSingleObject(sei.hProcess, INFINITE);
+    // Process has been created suspended, now resume it
+    ResumeThread(pi.hThread);
 
-    // Close the process handle
-    CloseHandle(sei.hProcess);
+    // Wait for the launched application to finish
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    // Close process and thread handles
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
 
     wprintf(L"\"%ls\" executed and completed.\n", executablePath);
     return 0;
@@ -31,7 +41,7 @@ int LaunchAndWait(LPCWSTR executablePath) {
 int main() {
     LPCWSTR exePath = L"helloworld.exe";
 
-    // Launch the executable and wait for it to finish
+    // Launch the executable in a suspended state and wait for it to finish
     if (LaunchAndWait(exePath) != 0) {
         wprintf(L"Failed to launch \"%ls\".\n", exePath);
         return -1;
